@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Hacker News TTS Feed</title>
+</head>
+<body>
+    <button id="speakBtn">Fetch Hacker News & Speak</button>
+    <p id="status">Ready</p>
+    <div id="news-feed">Click button to load Hacker News...</div>
+
+    <!-- Hidden audio element with hardcoded source and loop enabled -->
+    <audio id="bgAudio" src="loop2.m4a" loop></audio>
+
+    <script type="module">
+        import * as tts from 'https://cdn.jsdelivr.net/npm/@realtimex/piper-tts-web/+esm';
+
+        const statusEl = document.getElementById('status');
+        const speakBtn = document.getElementById('speakBtn');
+        const container = document.getElementById('news-feed');
+        const bgAudio = document.getElementById('bgAudio');
+
+        // Hacker News Official API endpoints
+        const HN_TOP_STORIES_URL = 'https://hacker-news.firebaseio.com/v0/topstories.json';
+        const HN_ITEM_URL = (id) => `https://hacker-news.firebaseio.com/v0/item/${id}.json`;
+
+        const NORMAL_VOLUME = 0.8;
+        const DUCKED_VOLUME = 0.15;
+
+        // Helper function for delays
+        const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+        // Smoothly transition volume up or down
+        function fadeVolume(audioEl, targetVolume, durationMs = 300) {
+            return new Promise((resolve) => {
+                const startVolume = audioEl.volume;
+                const startTime = performance.now();
+
+                function update() {
+                    const elapsed = performance.now() - startTime;
+                    const progress = Math.min(elapsed / durationMs, 1);
+                    audioEl.volume = startVolume + (targetVolume - startVolume) * progress;
+
+                    if (progress < 1) {
+                        requestAnimationFrame(update);
+                    } else {
+                        resolve();
+                    }
+                }
+                requestAnimationFrame(update);
+            });
+        }
+
+        // Reusable function to synthesize, duck music, and speak text
+        async function speakText(text) {
+            const wavBlob = await tts.predict({
+                text: text,
+                voiceId: 'en_US-lessac-low'
+            }, (progress) => {
+                statusEl.innerText = `Downloading model: ${Math.round(progress * 100)}%`;
+            });
+
+            statusEl.innerText = `Speaking: "${text}"`;
+
+            await fadeVolume(bgAudio, DUCKED_VOLUME, 400);
+
+            await new Promise((resolve) => {
+                const audio = new Audio(URL.createObjectURL(wavBlob));
+                audio.onended = resolve;
+                audio.onerror = resolve;
+                audio.play();
+            });
+
+            await fadeVolume(bgAudio, NORMAL_VOLUME, 400);
+        }
+
+        speakBtn.addEventListener('click', async () => {
+            speakBtn.disabled = true;
+            statusEl.innerText = 'Fetching Hacker News IDs...';
+
+            bgAudio.volume = NORMAL_VOLUME;
+            bgAudio.play().catch(err => console.warn('Audio play blocked:', err));
+
+            try {
+                // 1. Fetch array of top story IDs, then slice the first 20
+                const response = await fetch(HN_TOP_STORIES_URL);
+                const storyIds = await response.json();
+                const top20Ids = storyIds.slice(0, 20);
+
+                statusEl.innerText = 'Fetching story details...';
+
+                // 2. Fetch details for all 20 stories in parallel
+                const storyPromises = top20Ids.map(id => fetch(HN_ITEM_URL(id)).then(res => res.json()));
+                const items = await Promise.all(storyPromises);
+
+                // Render headlines on page
+                container.innerHTML = items.map(item => `
+                    <article style="margin-bottom: 1rem;">
+                        <p><a href="${item.url || '#'}" target="_blank">${item.title}</a></p>
+                    </article>
+                `).join('');
+
+                // 3. Speak current time intro
+                const now = new Date();
+                const timeString = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+                await speakText(`The current time is ${timeString}.`);
+                await delay(500);
+
+                // 4. Speak Hacker News intro message
+                await speakText("These are the top 20 headlines from Hacker News.");
+                await delay(1000);
+
+                // 5. Loop through the 20 headlines sequentially with a 1-second delay
+                for (let i = 0; i < items.length; i++) {
+                    if (!items[i] || !items[i].title) continue;
+
+                    statusEl.innerText = `Synthesizing headline ${i + 1} of ${items.length}...`;
+                    await speakText(items[i].title);
+
+                    if (i < items.length - 1) {
+                        statusEl.innerText = 'Pausing 1 second...';
+                        await delay(1000);
+                    }
+                }
+
+                statusEl.innerText = 'Done! Background music continues looping.';
+            } catch (err) {
+                statusEl.innerText = `Error: ${err.message}`;
+            } finally {
+                speakBtn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>
