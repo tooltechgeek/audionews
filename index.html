@@ -51,28 +51,35 @@
             });
         }
 
-        // Reusable function to synthesize, duck music, and speak text
-        async function speakText(text) {
-            const wavBlob = await tts.predict({
-                text: text,
-                voiceId: 'en_US-lessac-low'
-            }, (progress) => {
-                statusEl.innerText = `Downloading model: ${Math.round(progress * 100)}%`;
-            });
+// Create a single persistent Audio player element to prevent iOS memory issues
+const speechAudio = new Audio();
 
-            statusEl.innerText = `Speaking: "${text}"`;
+// Reusable mobile-friendly speak function
+async function speakText(text) {
+    const wavBlob = await tts.predict({
+        text: text,
+        voiceId: 'en_US-lessac-low'
+    }, (progress) => {
+        statusEl.innerText = `Downloading model: ${Math.round(progress * 100)}%`;
+    });
 
-            await fadeVolume(bgAudio, DUCKED_VOLUME, 400);
+    statusEl.innerText = `Speaking: "${text}"`;
 
-            await new Promise((resolve) => {
-                const audio = new Audio(URL.createObjectURL(wavBlob));
-                audio.onended = resolve;
-                audio.onerror = resolve;
-                audio.play();
-            });
+    await fadeVolume(bgAudio, DUCKED_VOLUME, 400);
 
-            await fadeVolume(bgAudio, NORMAL_VOLUME, 400);
-        }
+    // Play using the single reused audio element (crucial for iOS Safari stability)
+    await new Promise((resolve) => {
+        speechAudio.src = URL.createObjectURL(wavBlob);
+        speechAudio.onended = resolve;
+        speechAudio.onerror = resolve;
+        speechAudio.play().catch(err => {
+            console.warn("Playback error:", err);
+            resolve();
+        });
+    });
+
+    await fadeVolume(bgAudio, NORMAL_VOLUME, 400);
+}
 
         speakBtn.addEventListener('click', async () => {
             speakBtn.disabled = true;
