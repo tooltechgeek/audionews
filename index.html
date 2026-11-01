@@ -13,7 +13,6 @@
     <audio id="bgAudio" src="loop.mp3" loop></audio>
 
     <script type="module">
-        import * as tts from 'https://cdn.jsdelivr.net/npm/@realtimex/piper-tts-web/+esm';
 
         const statusEl = document.getElementById('status');
         const speakBtn = document.getElementById('speakBtn');
@@ -51,42 +50,20 @@
             });
         }
 
-        async function speakText(text) {
-            // Generate speech blob via WASM
-            const wavBlob = await tts.predict({
-                text: text,
-                voiceId: 'en_US-lessac-low'
-            }, (progress) => {
-                statusEl.innerText = `Downloading model: ${Math.round(progress * 100)}%`;
-            });
+async function speakText(text) {
+    statusEl.innerText = `Speaking: "${text}"`;
+    await fadeVolume(bgAudio, DUCKED_VOLUME, 400);
 
-            statusEl.innerText = `Speaking: "${text}"`;
+    await new Promise((resolve) => {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = 1.0; // Speed
+        utterance.onend = resolve;
+        utterance.onerror = resolve;
+        window.speechSynthesis.speak(utterance);
+    });
 
-            await fadeVolume(bgAudio, DUCKED_VOLUME, 400);
-
-            // Create object URL and play
-            const audioUrl = URL.createObjectURL(wavBlob);
-
-            await new Promise((resolve) => {
-                speechAudio.src = audioUrl;
-                speechAudio.onended = () => {
-                    // CRITICAL FOR SAFARI: Free up memory immediately after playing
-                    URL.revokeObjectURL(audioUrl);
-                    resolve();
-                };
-                speechAudio.onerror = () => {
-                    URL.revokeObjectURL(audioUrl);
-                    resolve();
-                };
-                speechAudio.play().catch(err => {
-                    console.warn("Playback error:", err);
-                    URL.revokeObjectURL(audioUrl);
-                    resolve();
-                });
-            });
-
-            await fadeVolume(bgAudio, NORMAL_VOLUME, 400);
-        }
+    await fadeVolume(bgAudio, NORMAL_VOLUME, 400);
+}
 
         speakBtn.addEventListener('click', async () => {
             speakBtn.disabled = true;
